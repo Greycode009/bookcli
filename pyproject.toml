@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bookcli"
+version = "0.1.0"
+description = "A production-grade Python CLI book search and download application."
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+    "httpx>=0.25.0",
+    "pydantic>=2.0.0",
+    "rapidfuzz>=3.0.0",
+    "aiosqlite>=0.19.0",
+]
+
+[project.scripts]
+book = "bookcli.cli:app"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
