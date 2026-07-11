@@ -412,4 +412,15 @@ def test_search_interactive_download_custom_path(mock_search_books):
             assert os.path.exists(custom_filepath)
 
 
+def test_dashboard_non_interactive():
+    """Test that running the CLI with no arguments in a non-interactive environment displays help/banner/guide and exits."""
+    res = runner.invoke(app, [])
+    assert res.exit_code == 0
+    # Verify banner / guide content is printed
+    assert "Search, inspect, and legally download books" in res.stdout
+    assert "Direct CLI Commands Guide" in res.stdout
+    assert "Note: Run in an interactive terminal" in res.stdout
+
+
+
 

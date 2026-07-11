@@ -14,6 +14,8 @@ from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.theme import Theme
+from rich.align import Align
+from rich.text import Text
 
 from bookcli.settings import DB_PATH
 from bookcli.config import load_config, save_config, AppConfig
@@ -45,7 +47,7 @@ console = Console()
 app = typer.Typer(
     name="book",
     help="BookCLI: Search, inspect, and legally download books from public sources.",
-    no_args_is_help=True
+    no_args_is_help=False
 )
 
 logger = logging.getLogger("bookcli")
@@ -292,8 +294,417 @@ async def add_favorite_internal(db_manager: DatabaseManager, book_id_input: str,
 
 # --- CLI Commands ---
 
-@app.callback()
+def make_banner() -> Panel:
+    banner_text = Text()
+    banner_text.append("██████╗  ██████╗  ██████╗ ██╗  ██╗ ██████╗██╗     ██╗\n", style="bold cyan")
+    banner_text.append("██╔══██╗██╔═══██╗██╔═══██╗██║ ██╔╝██╔════╝██║     ██║\n", style="bold cyan")
+    banner_text.append("██████╔╝██║   ██║██║   ██║█████╔╝ ██║     ██║     ██║\n", style="bold green")
+    banner_text.append("██╔══██╗██║   ██║██║   ██║██╔═██╗ ██║     ██║     ██║\n", style="bold green")
+    banner_text.append("██████╔╝╚██████╔╝╚██████╔╝██║  ██╗╚██████╗███████╗██║\n", style="bold yellow")
+    banner_text.append("╚══════╝  ╚═════╝  ╚═════╝ ╚═╝  ╚═╝ ╚═════╝╚══════╝╚═╝\n", style="bold yellow")
+    banner_text.append("     Search, inspect, and legally download books\n", style="italic dim white")
+    banner_text.append("          Powered by Open Library & Gutenberg\n", style="italic dim white")
+    banner_text.append("              Developer - Dipesh Malla\n", style="italic dim white")
+    banner_text.append("                 GitHub : greycode009 ", style="italic dim white")
+    
+
+    from rich.box import ROUNDED
+    return Panel(
+        Align.center(banner_text),
+        box=ROUNDED,
+        border_style="bold blue",
+        padding=(1, 2)
+    )
+
+
+def make_menu_panel() -> Panel:
+    menu_table = Table.grid(padding=(0, 2))
+    menu_table.add_column(style="bold yellow", justify="right")
+    menu_table.add_column(style="bold white")
+    
+    menu_table.add_row("[1]", "🔍  Search Books")
+    menu_table.add_row("[2]", "📜  Search History")
+    menu_table.add_row("[3]", "⭐  Favorite Books")
+    menu_table.add_row("[4]", "⚡  Metadata Cache Stats")
+    menu_table.add_row("[5]", "🧹  Clear Metadata Cache")
+    menu_table.add_row("[6]", "⚙️   Settings / Configuration")
+    menu_table.add_row("[7]", "❌  Exit Dashboard")
+    
+    from rich.box import ROUNDED
+    return Panel(
+        menu_table,
+        title="[bold green]Main Menu[/bold green]",
+        box=ROUNDED,
+        border_style="green",
+        padding=(1, 4),
+        expand=False
+    )
+
+
+def make_commands_panel() -> Panel:
+    cmd_table = Table(box=None, padding=(0, 1), show_header=True, header_style="bold magenta")
+    cmd_table.add_column("Command Syntax", style="cyan")
+    cmd_table.add_column("Description", style="dim white")
+    
+    cmd_table.add_row("book search \"<query>\"", "Search books across all providers")
+    cmd_table.add_row("book info <id>", "Show detailed metadata for a book (use ID or index)")
+    cmd_table.add_row("book download <id>", "Download a book locally")
+    cmd_table.add_row("book open <id>", "Open a downloaded book in OS default reader")
+    cmd_table.add_row("book history", "Show search query history")
+    cmd_table.add_row("book favorite list", "List all favorite books")
+    cmd_table.add_row("book favorite add <id>", "Add a book to favorites")
+    cmd_table.add_row("book favorite remove <id>", "Remove a book from favorites")
+    cmd_table.add_row("book cache stats / clear", "Show cache statistics or clear cached items")
+    cmd_table.add_row("book config [set <key> <val>]", "View/modify configuration settings")
+    
+    from rich.box import ROUNDED
+    return Panel(
+        cmd_table,
+        title="[bold magenta]Direct CLI Commands Guide[/bold magenta]",
+        box=ROUNDED,
+        border_style="magenta",
+        padding=(1, 2)
+    )
+
+
+async def run_dashboard() -> None:
+    """Persistent dashboard interactive menu loop."""
+    db_manager = DatabaseManager(str(DB_PATH))
+    await db_manager.initialize()
+    config = load_config()
+
+    while True:
+        console.clear()
+        console.print(make_banner())
+        console.print(make_menu_panel())
+        console.print(make_commands_panel())
+
+        try:
+            choice = console.input("\n[bold yellow]Select an option (1-7) > [/bold yellow]").strip()
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n[yellow]Goodbye![/yellow]")
+            break
+
+        if not choice:
+            continue
+
+        if choice == "1":
+            # 🔍 Search Books
+            console.clear()
+            console.print(Panel("[bold green]🔍 Search Books[/bold green]", border_style="green"))
+            query = console.input("[bold white]Enter search query (or press Enter to go back): [/bold white]").strip()
+            if not query:
+                continue
+
+            # Optional filters
+            author = console.input("[dim]Filter by Author (optional, press Enter to skip): [/dim]").strip() or None
+            isbn = console.input("[dim]Filter by ISBN (optional, press Enter to skip): [/dim]").strip() or None
+            publisher = console.input("[dim]Filter by Publisher (optional, press Enter to skip): [/dim]").strip() or None
+            subject = console.input("[dim]Filter by Subject (optional, press Enter to skip): [/dim]").strip() or None
+
+            with console.status("[bold green]Searching enabled providers..."):
+                try:
+                    results = await search_books(
+                        query=query,
+                        config=config,
+                        db_manager=db_manager,
+                        author=author,
+                        isbn=isbn,
+                        publisher=publisher,
+                        subject=subject
+                    )
+                except Exception as e:
+                    console.print(Panel(f"[bold red]Search Error:[/bold red] {e}", title="Error", border_style="red"))
+                    console.input("\nPress Enter to return to main menu...")
+                    continue
+
+            if not results:
+                console.print("[yellow]No books found matching the search criteria.[/yellow]")
+                console.input("\nPress Enter to return to main menu...")
+                continue
+
+            # Store search results session in DB
+            async with db_manager.connection() as conn:
+                await conn.execute("DELETE FROM search_results_session")
+                for idx, book in enumerate(results, start=1):
+                    await conn.execute(
+                        "INSERT INTO search_results_session (result_index, book_id) VALUES (?, ?)",
+                        (idx, book.id)
+                    )
+                await conn.commit()
+
+            # Format output as Rich table
+            table = Table(title=f"Search Results for '{query}'")
+            table.add_column("ID", justify="right", style="cyan", no_wrap=True)
+            table.add_column("Title", style="magenta")
+            table.add_column("Author(s)", style="green")
+            table.add_column("Year", justify="center", style="yellow")
+            table.add_column("Source", style="blue")
+            table.add_column("Download", justify="center")
+
+            for idx, book in enumerate(results, start=1):
+                if book.download_availability:
+                    avail_str = f"[green]{book.file_format.upper()}[/green]" if book.file_format else "[green]Yes[/green]"
+                else:
+                    avail_str = "[red]No[/red]"
+                author_str = ", ".join(book.authors) if book.authors else "Unknown"
+                year_str = str(book.published_year) if book.published_year else "N/A"
+                table.add_row(
+                    str(idx),
+                    book.title,
+                    author_str,
+                    year_str,
+                    book.source,
+                    avail_str
+                )
+
+            console.print(table)
+            console.print(f"[dim]Total: {len(results)} books.[/dim]")
+
+            # Start Interactive Explorer mode for the search results
+            console.print("\n[bold cyan]Interactive Explorer Mode[/bold cyan]")
+            console.print("[dim]Enter <ID> to download, 'i <ID>' for info, 'f <ID>' to favorite, 'o <ID>' to open, or 'q' to quit explorer.[/dim]")
+            while True:
+                try:
+                    action = console.input("\n[bold yellow]Action > [/bold yellow]").strip()
+                    if not action or action.lower() in ("q", "quit", "exit"):
+                        break
+
+                    tokens = action.split()
+                    if not tokens:
+                        continue
+
+                    if tokens[0].isdigit():
+                        val = tokens[0]
+                        custom_path = None
+                        if len(tokens) >= 3 and tokens[1] in ("-o", "--output"):
+                            custom_path = " ".join(tokens[2:])
+                        elif len(tokens) > 1:
+                            console.print("[red]Invalid output path syntax. Use: <ID> -o <path>[/red]")
+                            continue
+
+                        try:
+                            await download_book_internal(db_manager, val, config, custom_path=Path(custom_path) if custom_path else None)
+                        except BookCLIError as e:
+                            console.print(f"[red]Error: {e}[/red]")
+                    elif len(tokens) >= 2:
+                        cmd, val = tokens[0].lower(), " ".join(tokens[1:])
+                        try:
+                            if cmd == "i":
+                                await show_info_internal(db_manager, val, config)
+                            elif cmd == "f":
+                                await add_favorite_internal(db_manager, val, config)
+                            elif cmd == "o":
+                                await open_book_internal(db_manager, val)
+                            else:
+                                console.print("[red]Unknown command prefix. Use 'i', 'f', 'o', or just the ID.[/red]")
+                        except BookCLIError as e:
+                            console.print(f"[red]Error: {e}[/red]")
+                    else:
+                        console.print("[red]Invalid input. Enter an ID index number or 'q' to exit.[/red]")
+                except (KeyboardInterrupt, EOFError):
+                    break
+
+        elif choice == "2":
+            # 📜 Search History
+            console.clear()
+            console.print(Panel("[bold green]📜 Search History[/bold green]", border_style="green"))
+            hist = await get_search_history(db_manager, limit=20)
+            if not hist:
+                console.print("[yellow]Search history is empty.[/yellow]")
+            else:
+                table = Table(title="Search History")
+                table.add_column("Timestamp", style="cyan")
+                table.add_column("Query/Filters", style="magenta")
+                table.add_column("Results Count", style="green", justify="right")
+
+                for entry in hist:
+                    table.add_row(
+                        entry["timestamp"],
+                        entry["query"],
+                        str(entry["results_count"])
+                    )
+                console.print(table)
+
+                console.print("\nOptions: [c] Clear history, [Any other key] Go back")
+                hist_choice = console.input("[bold yellow]Choose > [/bold yellow]").strip().lower()
+                if hist_choice == 'c':
+                    await clear_search_history(db_manager)
+                    console.print("[green]Search history cleared successfully.[/green]")
+                    await asyncio.sleep(1)
+                    continue
+            console.input("\nPress Enter to return to main menu...")
+
+        elif choice == "3":
+            # ⭐ Favorite Books
+            console.clear()
+            console.print(Panel("[bold green]⭐ Favorite Books[/bold green]", border_style="green"))
+            async with db_manager.connection() as conn:
+                async with conn.execute("SELECT book_id, title, added_at FROM favorites ORDER BY added_at DESC") as cursor:
+                    rows = await cursor.fetchall()
+
+            if not rows:
+                console.print("[yellow]Favorites list is empty.[/yellow]")
+                console.input("\nPress Enter to return to main menu...")
+                continue
+
+            table = Table(title="Favorite Books")
+            table.add_column("Index", style="cyan", justify="right")
+            table.add_column("Book ID", style="cyan")
+            table.add_column("Title", style="magenta")
+            table.add_column("Added At", style="green")
+
+            favorites_map = {}
+            for idx, row in enumerate(rows, start=1):
+                table.add_row(
+                    str(idx),
+                    row["book_id"],
+                    row["title"],
+                    row["added_at"]
+                )
+                favorites_map[idx] = row["book_id"]
+
+            console.print(table)
+
+            console.print("\nOptions: [d <index>] Download, [o <index>] Open, [r <index>] Remove, [Any other key] Go back")
+            fav_action = console.input("[bold yellow]Choose > [/bold yellow]").strip()
+            if fav_action:
+                tokens = fav_action.split()
+                if len(tokens) >= 2 and tokens[0].lower() in ('d', 'o', 'r') and tokens[1].isdigit():
+                    cmd = tokens[0].lower()
+                    idx = int(tokens[1])
+                    if idx in favorites_map:
+                        book_id = favorites_map[idx]
+                        if cmd == 'd':
+                            try:
+                                await download_book_internal(db_manager, book_id, config)
+                                console.input("\nPress Enter...")
+                            except BookCLIError as e:
+                                console.print(f"[red]Error: {e}[/red]")
+                                console.input("\nPress Enter...")
+                        elif cmd == 'o':
+                            try:
+                                await open_book_internal(db_manager, book_id)
+                                console.input("\nPress Enter...")
+                            except BookCLIError as e:
+                                console.print(f"[red]Error: {e}[/red]")
+                                console.input("\nPress Enter...")
+                        elif cmd == 'r':
+                            async with db_manager.connection() as conn:
+                                await conn.execute("DELETE FROM favorites WHERE book_id = ?", (book_id,))
+                                await conn.commit()
+                            console.print(f"[green]Removed book from favorites.[/green]")
+                            await asyncio.sleep(1)
+                    else:
+                        console.print("[red]Invalid favorite index.[/red]")
+                        await asyncio.sleep(1)
+            else:
+                continue
+
+        elif choice == "4":
+            # ⚡ Cache Statistics
+            console.clear()
+            console.print(Panel("[bold green]⚡ Cache Statistics[/bold green]", border_style="green"))
+            stats = await get_cache_db_stats(db_manager)
+            console.print(Panel(
+                f"Total Cached Books: [green]{stats['total_items']}[/green]\n"
+                f"Oldest Record: [yellow]{stats['oldest_item']}[/yellow]\n"
+                f"Newest Record: [yellow]{stats['newest_item']}[/yellow]",
+                title="Metadata Cache Statistics",
+                border_style="cyan"
+            ))
+            console.input("\nPress Enter to return to main menu...")
+
+        elif choice == "5":
+            # 🧹 Clear Cache
+            console.clear()
+            console.print(Panel("[bold green]🧹 Clear Cache[/bold green]", border_style="green"))
+            deleted_count = await clear_cache_db(db_manager)
+            console.print(f"[green]Metadata cache cleared. Removed {deleted_count} items.[/green]")
+            await asyncio.sleep(1.5)
+
+        elif choice == "6":
+            # ⚙️ Settings / Configuration
+            while True:
+                console.clear()
+                console.print(Panel("[bold green]⚙️ Settings / Configuration[/bold green]", border_style="green"))
+                config = load_config()
+                table = Table(title="Current Configuration Settings")
+                table.add_column("Index", style="cyan", justify="right")
+                table.add_column("Setting Key", style="cyan")
+                table.add_column("Current Value", style="yellow")
+
+                settings_list = [
+                    ("download-dir", config.download_dir),
+                    ("cache-ttl", str(config.cache_ttl_seconds)),
+                    ("timeout", str(config.timeout_seconds)),
+                    ("theme", config.theme),
+                    ("provider:google-books", str(config.providers.google_books)),
+                    ("provider:openlibrary", str(config.providers.openlibrary)),
+                    ("provider:gutenberg", str(config.providers.gutenberg)),
+                    ("provider:internet-archive", str(config.providers.internet_archive)),
+                ]
+
+                for idx, (k, v) in enumerate(settings_list, start=1):
+                    table.add_row(str(idx), k, v)
+
+                console.print(table)
+                console.print("\nOptions: Enter index (1-8) to edit, or [q] to return to Main Menu")
+                cfg_choice = console.input("[bold yellow]Select option > [/bold yellow]").strip()
+                if cfg_choice.lower() in ('q', 'quit', 'back', 'exit'):
+                    break
+                if cfg_choice.isdigit():
+                    idx = int(cfg_choice)
+                    if 1 <= idx <= len(settings_list):
+                        key, current_val = settings_list[idx - 1]
+                        new_val = console.input(f"Enter new value for [cyan]{key}[/cyan] (current: {current_val}): ").strip()
+                        if not new_val:
+                            continue
+
+                        # Save config
+                        if key == "download-dir":
+                            config.download_dir = new_val
+                            os.makedirs(new_val, exist_ok=True)
+                        elif key == "cache-ttl":
+                            if not new_val.isdigit():
+                                console.print("[red]Cache TTL must be an integer.[/red]")
+                                console.input("\nPress Enter...")
+                                continue
+                            config.cache_ttl_seconds = int(new_val)
+                        elif key == "timeout":
+                            if not new_val.isdigit():
+                                console.print("[red]Timeout must be an integer.[/red]")
+                                console.input("\nPress Enter...")
+                                continue
+                            config.timeout_seconds = int(new_val)
+                        elif key == "theme":
+                            config.theme = new_val
+                        elif key.startswith("provider:"):
+                            provider_name = key.split(":")[1]
+                            prov_key = provider_name.replace("-", "_")
+                            bool_val = new_val.lower() in ("true", "1", "yes", "on")
+                            if hasattr(config.providers, prov_key):
+                                setattr(config.providers, prov_key, bool_val)
+
+                        try:
+                            save_config(config)
+                            console.print(f"[green]Successfully updated configuration setting '{key}' to '{new_val}'.[/green]")
+                            await asyncio.sleep(1)
+                        except Exception as e:
+                            console.print(f"[red]Error saving configuration: {e}[/red]")
+                            console.input("\nPress Enter...")
+                    else:
+                        console.print("[red]Invalid index.[/red]")
+                        await asyncio.sleep(1)
+
+        elif choice == "7" or choice.lower() in ("q", "exit", "quit"):
+            console.print("[yellow]Goodbye![/yellow]")
+            break
+
+
+@app.callback(invoke_without_command=True)
 def global_callback(
+    ctx: typer.Context,
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose logging (INFO)"),
     debug: bool = typer.Option(False, "--debug", "-d", help="Enable debug logging (DEBUG)")
 ):
@@ -309,6 +720,16 @@ def global_callback(
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     )
     logger.setLevel(level)
+
+    # Check if we should run the interactive dashboard
+    if ctx.invoked_subcommand is None:
+        is_interactive = sys.stdin.isatty() or os.environ.get("BOOKCLI_INTERACTIVE") == "true"
+        if is_interactive:
+            asyncio.run(run_dashboard())
+        else:
+            console.print(make_banner())
+            console.print(make_commands_panel())
+            console.print("\n[bold yellow]Note:[/bold yellow] Run in an interactive terminal to access the full visual dashboard menu.")
 
 
 @app.command()
